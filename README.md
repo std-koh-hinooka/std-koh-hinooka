@@ -32,6 +32,10 @@
 ## Stats
 
 <p>
-  <img src="https://github-readme-stats-std-koh-hinookas-projects.vercel.app/api?username=std-koh-hinooka&show_icons=true&theme=tokyonight&hide_border=true" height="165" />
-  <img src="https://github-readme-stats-std-koh-hinookas-projects.vercel.app/api/top-langs/?username=std-koh-hinooka&layout=compact&theme=tokyonight&hide_border=true" height="165" />
+  <img src="https://github-readme-stats-std-koh-hinookas-projects.vercel.app/api?username=std-koh-hinooka&show_icons=true&theme=tokyonight&hide_border=true&count_private=true" height="165" />
+  <img src="https://streak-stats.demolab.com?user=std-koh-hinooka&theme=tokyonight&hide_border=true" height="165" />
+</p>
+
+<p>
+  <img src="https://github-profile-trophy.vercel.app/?username=std-koh-hinooka&theme=tokyonight&no-frame=true&column=7" />
 </p>
