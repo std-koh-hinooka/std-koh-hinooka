@@ -1,4 +1,4 @@
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1b27,50:70a5fd,100:38bdae&height=200&section=header&text=Koshiro%20Hinooka&fontSize=36&fontColor=a9b1d6&fontAlignY=35&desc=CTO%20%7C%20Infrastructure%20of%20Ideas&descSize=16&descColor=70a5fd&descAlignY=55" width="100%" />
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1b27,50:70a5fd,100:38bdae&height=200&section=header&text=Koshiro%20Hinooka&fontSize=36&fontColor=a9b1d6&fontAlignY=35&desc=CTO%20%7C%20Infrastructure%20of%20Ideas&descSize=16&descColor=70a5fd&descAlignY=55" width="100%" alt="Koshiro Hinooka - CTO | Infrastructure of Ideas" />
 
 <div align="center">
 
@@ -53,9 +53,9 @@
 
 ## Stats
 
-<img src="https://github-readme-stats-std-koh-hinookas-projects.vercel.app/api?username=std-koh-hinooka&show_icons=true&theme=tokyonight&hide_border=true&include_all_commits=true" height="195" />
-<img src="https://streak-stats.demolab.com?user=std-koh-hinooka&theme=tokyonight&hide_border=true" height="195" />
+<img src="https://github-readme-stats-std-koh-hinookas-projects.vercel.app/api?username=std-koh-hinooka&show_icons=true&theme=tokyonight&hide_border=true&include_all_commits=true" height="195" alt="GitHub Stats" />
+<img src="https://streak-stats.demolab.com?user=std-koh-hinooka&theme=tokyonight&hide_border=true" height="195" alt="GitHub Streak Stats" />
 
 </div>
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1b27,50:70a5fd,100:38bdae&height=120&section=footer" width="100%" />
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1b27,50:70a5fd,100:38bdae&height=120&section=footer" width="100%" alt="" />
