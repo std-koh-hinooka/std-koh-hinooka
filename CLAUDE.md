@@ -22,9 +22,35 @@ GitHub プロフィール README (`std-koh-hinooka` user の `README.md`) の管
 | `.github/` | PR/ISSUE template |
 | `scripts/` | pre-commit / pre-push hook script |
 
+## Quick Start
+
+```bash
+# README.md ローカル preview (公開前確認)
+grip README.md  # http://localhost:6419 で GitHub 風 markdown render
+
+# プロフィール変更を公開
+git commit -m "feat: <変更内容>"
+git push origin <branch>
+gh pr create  # PR/ISSUE は public visible、機密含めない
+```
+
+## GitHub アカウント設定
+
+本 repo は `std-koh-hinooka` user 専用。`.envrc` で commit author を分離:
+
+- `GIT_AUTHOR_NAME=koh-hinooka` / `GIT_COMMITTER_EMAIL=...@std-koh-hinooka.users.noreply.github.com`
+- 他 repo (主用 koh-hinooka account) と混同しないよう `direnv allow` 必須
+- SSH host alias: `git@github.com-student:std-koh-hinooka/std-koh-hinooka.git`
+
 ## 開発ルール
 
 グローバル CLAUDE.md (`~/.claude/CLAUDE.md`) の原則に従う。プロジェクト固有の例外なし。
+
+## Gotchas
+
+- **公開 repo**: ISSUE / PR / commit message / branch 名すべて public。秘匿情報を含めない
+- **画像サービス依存**: capsule-render / shields.io / streak-stats.demolab.com が落ちると README が崩れる。github-readme-stats のみ自前 Vercel で安定性最高
+- **`.gitignore` 不在**: secret 混入時は gitleaks (pre-commit hook) でブロックするが、`.env` 等の標準パターンを `.gitignore` に追加することを推奨
 
 ## Obsidian vault
 
