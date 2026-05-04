@@ -64,19 +64,27 @@ check_plan_naming() {
   done <<< "$filtered_files"
 }
 
-check_spec_placement_and_naming() {
+_iter_spec_files() {
+  echo "$STAGED_FILES" | safe_grep '^docs/specs/.*\.md$'
+}
+
+_skip_special_spec_file() {
+  local fname="$1" dir_path="$2"
+  [[ "$fname" == ".gitkeep" ]] && return 0
+  [[ "$fname" == "README.md" && "$dir_path" == "docs/specs" ]] && return 0
+  return 1
+}
+
+check_spec_placement() {
   [[ -z "$STAGED_FILES" ]] && return 0
   local spec_files
-  spec_files=$(echo "$STAGED_FILES" | safe_grep '^docs/specs/.*\.md$')
+  spec_files=$(_iter_spec_files)
   while IFS= read -r file; do
     [ -z "$file" ] && continue
-    local fname dir_path bc_dir depth
+    local fname dir_path depth
     fname=$(basename "$file")
     dir_path=$(dirname "$file")
-    [[ "$fname" == ".gitkeep" ]] && continue
-    [[ "$fname" == "README.md" && "$dir_path" == "docs/specs" ]] && continue
-
-    # 配置: docs/specs 直下禁止 / 2 階層以上禁止
+    _skip_special_spec_file "$fname" "$dir_path" && continue
     depth=$(echo "$file" | tr '/' '\n' | wc -l)
     if [[ "$dir_path" == "docs/specs" ]]; then
       ERRORS+=("Spec 配置違反: $file (期待: docs/specs/{_uncategorized,<bounded-context>}/<feature-slug>.md, 直下配置禁止)")
@@ -84,26 +92,96 @@ check_spec_placement_and_naming() {
     fi
     if [[ $depth -gt 4 ]]; then
       ERRORS+=("Spec 配置違反: $file (2 階層以上禁止)")
-      continue
     fi
+  done <<< "$spec_files"
+}
 
-    # bounded context dir 名検証
+check_spec_dir_name() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local spec_files
+  spec_files=$(_iter_spec_files)
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    local fname dir_path bc_dir
+    fname=$(basename "$file")
+    dir_path=$(dirname "$file")
+    _skip_special_spec_file "$fname" "$dir_path" && continue
+    [[ "$dir_path" == "docs/specs" ]] && continue
     bc_dir=$(basename "$dir_path")
     if [[ "$bc_dir" != "_uncategorized" ]] && [[ ! "$bc_dir" =~ ^[a-z][a-z0-9-]*$ ]]; then
       ERRORS+=("Bounded context dir 命名違反: $dir_path (期待: kebab-case ^[a-z][a-z0-9-]*\$ または _uncategorized)")
     fi
+  done <<< "$spec_files"
+}
 
-    # ファイル名検証 (kebab-case, アンダースコア prefix 禁止)
+check_spec_filename() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local spec_files
+  spec_files=$(_iter_spec_files)
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    local fname dir_path
+    fname=$(basename "$file")
+    dir_path=$(dirname "$file")
+    _skip_special_spec_file "$fname" "$dir_path" && continue
+    [[ "$dir_path" == "docs/specs" ]] && continue
     if [[ ! "$fname" =~ ^[a-z][a-z0-9-]*\.md$ ]]; then
       ERRORS+=("Spec 命名違反: $file (期待: kebab-case ^[a-z][a-z0-9-]*\\.md\$, アンダースコア prefix は予約)")
     fi
   done <<< "$spec_files"
 }
 
+_extract_frontmatter() {
+  local file="$1"
+  awk '/^---$/{n++; if(n==2)exit; next} n==1' "$file"
+}
+
+_validate_required_keys() {
+  local file="$1" fm="$2"
+  local required_keys=("feature" "status" "bounded_context" "related_issues" "related_prs" "glossary_refs" "last_reviewed")
+  local missing=()
+  local key
+  for key in "${required_keys[@]}"; do
+    if ! echo "$fm" | grep -qF "${key}:"; then
+      missing+=("$key")
+    fi
+  done
+  if [ ${#missing[@]} -gt 0 ]; then
+    ERRORS+=("Frontmatter 必須項目欠落: $file (欠落キー: ${missing[*]})")
+    return 1
+  fi
+  return 0
+}
+
+_validate_field_consistency() {
+  local file="$1" fm="$2" slug="$3" bc_dir="$4"
+  local valid_status=("draft" "reviewed" "implemented" "deprecated")
+  local feature_value bc_value status_value last_reviewed_value
+  feature_value=$(echo "$fm" | awk -F': *' '/^feature:/{print $2; exit}')
+  bc_value=$(echo "$fm" | awk -F': *' '/^bounded_context:/{print $2; exit}')
+  status_value=$(echo "$fm" | awk -F': *' '/^status:/{print $2; exit}')
+  last_reviewed_value=$(echo "$fm" | awk -F': *' '/^last_reviewed:/{print $2; exit}')
+
+  if [[ "$feature_value" != "$slug" ]]; then
+    ERRORS+=("Frontmatter 値不整合: $file (feature='$feature_value' ≠ ファイル名 '$slug')")
+  fi
+  if [[ "$bc_value" != "$bc_dir" ]]; then
+    ERRORS+=("Frontmatter 値不整合: $file (bounded_context='$bc_value' ≠ ディレクトリ名 '$bc_dir')")
+  fi
+  local is_valid_status=0 v
+  for v in "${valid_status[@]}"; do
+    [[ "$status_value" == "$v" ]] && is_valid_status=1 && break
+  done
+  if [[ $is_valid_status -eq 0 ]]; then
+    ERRORS+=("Frontmatter status 値違反: $file (status='$status_value', 期待: draft|reviewed|implemented|deprecated)")
+  fi
+  if [[ ! "$last_reviewed_value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    ERRORS+=("Frontmatter last_reviewed 形式違反: $file (期待: yyyy-MM-dd)")
+  fi
+}
+
 check_spec_frontmatter() {
   [[ -z "$STAGED_FILES" ]] && return 0
-  local required_keys=("feature" "status" "bounded_context" "related_issues" "related_prs" "glossary_refs" "last_reviewed")
-  local valid_status=("draft" "reviewed" "implemented" "deprecated")
   local spec_files
   spec_files=$(echo "$STAGED_FILES" | safe_grep '^docs/specs/.*/.*\.md$')
   while IFS= read -r file; do
@@ -115,46 +193,14 @@ check_spec_frontmatter() {
     [[ "$fname" == "README.md" ]] && continue
     bc_dir=$(basename "$dir_path")
     slug="${fname%.md}"
-
     [ -f "$file" ] || continue
 
     local fm
-    fm=$(awk '/^---$/{n++; if(n==2)exit; next} n==1' "$file")
+    fm=$(_extract_frontmatter "$file")
     [ -z "$fm" ] && { ERRORS+=("Frontmatter 不在: $file"); continue; }
 
-    local missing=()
-    for key in "${required_keys[@]}"; do
-      if ! echo "$fm" | grep -qF "${key}:"; then
-        missing+=("$key")
-      fi
-    done
-    if [ ${#missing[@]} -gt 0 ]; then
-      ERRORS+=("Frontmatter 必須項目欠落: $file (欠落キー: ${missing[*]})")
-      continue
-    fi
-
-    local feature_value bc_value status_value last_reviewed_value
-    feature_value=$(echo "$fm" | awk -F': *' '/^feature:/{print $2; exit}')
-    bc_value=$(echo "$fm" | awk -F': *' '/^bounded_context:/{print $2; exit}')
-    status_value=$(echo "$fm" | awk -F': *' '/^status:/{print $2; exit}')
-    last_reviewed_value=$(echo "$fm" | awk -F': *' '/^last_reviewed:/{print $2; exit}')
-
-    if [[ "$feature_value" != "$slug" ]]; then
-      ERRORS+=("Frontmatter 値不整合: $file (feature='$feature_value' ≠ ファイル名 '$slug')")
-    fi
-    if [[ "$bc_value" != "$bc_dir" ]]; then
-      ERRORS+=("Frontmatter 値不整合: $file (bounded_context='$bc_value' ≠ ディレクトリ名 '$bc_dir')")
-    fi
-    local is_valid_status=0
-    for v in "${valid_status[@]}"; do
-      [[ "$status_value" == "$v" ]] && is_valid_status=1 && break
-    done
-    if [[ $is_valid_status -eq 0 ]]; then
-      ERRORS+=("Frontmatter status 値違反: $file (status='$status_value', 期待: draft|reviewed|implemented|deprecated)")
-    fi
-    if [[ ! "$last_reviewed_value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-      ERRORS+=("Frontmatter last_reviewed 形式違反: $file (期待: yyyy-MM-dd)")
-    fi
+    _validate_required_keys "$file" "$fm" || continue
+    _validate_field_consistency "$file" "$fm" "$slug" "$bc_dir"
   done <<< "$spec_files"
 }
 
@@ -199,9 +245,9 @@ check_claude_md_progress() {
       /^\+/ && !/^\+\+\+/ && !/→/ {
         gsub(/`[^`]*`/, "")
         line = tolower($0)
-        if (line ~ /(todo|wbs|進捗|タスク一覧|完了率|[0-9]+%|■|□|☑|☐|\[x\]|\[ \])/) exit 0
+        if (line ~ /(todo|wbs|進捗|タスク一覧|完了率|[0-9]+%|■|□|☑|☐|\[x\]|\[ \])/) { found = 1; exit }
       }
-      END { exit 1 }
+      END { if (!found) exit 1 }
     '; then
       ERRORS+=("CLAUDE.md に進捗情報の疑い: $file (進捗管理は ROADMAP.md または TaskCreate を使用してください)")
     fi
@@ -227,7 +273,9 @@ main() {
   check_requirements
   get_staged_files
   check_plan_naming
-  check_spec_placement_and_naming
+  check_spec_placement
+  check_spec_dir_name
+  check_spec_filename
   check_spec_frontmatter
   check_no_superpowers_dir
   check_adr_naming

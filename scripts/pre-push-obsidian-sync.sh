@@ -114,8 +114,19 @@ validate_spec_symlink() {
 }
 
 validate_adr_index_entry() {
+  # base: upstream tracking branch があれば優先、無ければ HEAD~1 にフォールバック
+  # 初回 commit のみで HEAD~1 解決不能時は検証 skip (return 0)
+  local base=""
+  # shellcheck disable=SC1083
+  if base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); then
+    :
+  elif git rev-parse HEAD~1 >/dev/null 2>&1; then
+    base="HEAD~1"
+  else
+    return 0
+  fi
   local new_adrs
-  new_adrs=$(git diff --diff-filter=A --name-only HEAD~1...HEAD 2>/dev/null | grep '^docs/adr/.*\.md$' || true)
+  new_adrs=$(git diff --diff-filter=A --name-only "${base}...HEAD" 2>/dev/null | grep '^docs/adr/.*\.md$' || true)
   while IFS= read -r adr; do
     [ -z "$adr" ] && continue
     local fname
