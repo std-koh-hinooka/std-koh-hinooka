@@ -1,3 +1,13 @@
+---
+feature: github-profile-readme
+status: implemented
+bounded_context: _uncategorized
+related_issues: ['#7']
+related_prs: ['#8']
+glossary_refs: []
+last_reviewed: 2026-05-04
+---
+
 # GitHub プロフィール README リデザイン設計書
 
 ## 概要

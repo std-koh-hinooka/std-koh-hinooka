@@ -1,0 +1,153 @@
+# lefthook.yml — std-koh-hinooka 用設定
+#
+# 本 repo は GitHub プロフィール README (Markdown) のみで構成され、build/test/lint
+# command は持たない (CLAUDE.md §技術スタック 参照)。実効 hook は pre-commit の
+# secrets-scan と doc-naming、pre-push の obsidian-sync のみ。各サンプルブロックの
+# 有効/無効は本体コメント側で個別に説明。
+#
+# 目的: サブエージェント自己申告 ("ALL PASS" 報告) を信用せず、機械的な push ゲート
+# で品質を担保する (~/.claude/CLAUDE.md §Sub-agent Self-Report is Untrusted)。
+#
+# https://github.com/evilmartians/lefthook
+
+# ================================================================
+# pre-commit: 軽量かつ変更ファイル限定のチェックのみ置く
+# ----------------------------------------------------------------
+# 原則:
+#   - シークレットスキャン (gitleaks による staged 差分の即時ブロック)
+#   - フォーマッタ (自動修正可、stage_fixed: true を使う)
+#   - 静的解析 (型検査 / linter / vet 等)
+#   - ドキュメント命名等のメタチェック
+#
+# 単体テストは pre-commit に置かない (遅くなるため pre-push に回す)
+# ================================================================
+pre-commit:
+  parallel: true
+  commands:
+    # ------------------------------------------------------------
+    # シークレットスキャン (gitleaks)
+    # ------------------------------------------------------------
+    # 目的: API キー / トークン / 秘密鍵が staged 差分に混入した瞬間に
+    # commit をブロックする。一度コミットすると履歴から完全削除は不可能
+    # なため、commit 前検出が必須。
+    #
+    # 前提: gitleaks がグローバルインストール済み (`mise use -g gitleaks@latest`)
+    # 設定: プロジェクトルートの .gitleaks.toml (allowlist 等のカスタム)
+    #
+    # オプション:
+    #   --pre-commit  : staged 差分のみスキャン (高速)
+    #   --staged      : git index 上のファイルを対象
+    #   --redact      : 検出した秘密値を出力でマスク (ターミナル/ログ漏洩防止)
+    #   --no-banner   : ASCII アート抑制 (CI/CD 出力清潔化)
+    #   --verbose     : 検出箇所を詳細表示 (修正のため必要)
+    #
+    # 失敗時の対応:
+    #   1. その秘密値を即時ローテーション (発行元で無効化 → 再発行)
+    #   2. .env / Secret Manager 等に外出し
+    #   3. 誤検知の場合は .gitleaks.toml の [allowlist] に追記
+    #
+    # 一時バイパス (緊急時のみ、PR 説明に明記必須):
+    #   LEFTHOOK_EXCLUDE=secrets-scan git commit ...
+    secrets-scan:
+      tags: security
+      run: gitleaks git --pre-commit --staged --redact --no-banner --verbose .
+
+    # ------------------------------------------------------------
+    # サンプル: フォーマッタ (サービス / 言語ごとに複製する)
+    # ------------------------------------------------------------
+    # <service>-format:
+    #   glob: "<service>/**/*.<ext>"
+    #   run: <formatter> {staged_files}
+    #   stage_fixed: true
+
+    # ------------------------------------------------------------
+    # サンプル: 静的解析 (モジュール単位で全量検査が必要な言語は
+    # staged_files を使わずモジュール全体を走査する)
+    # ------------------------------------------------------------
+    # <service>-lint:
+    #   glob: "<service>/**/*.<ext>"
+    #   run: cd <service> && <linter>
+    #
+    # <service>-typecheck:
+    #   glob: "<service>/**/*.<ext>"
+    #   run: cd <service> && <typechecker>
+
+    # ------------------------------------------------------------
+    # ドキュメント命名規則
+    # ------------------------------------------------------------
+    # 注: doc-naming script 内部で git diff --cached で staged files を再取得して検証する。
+    # glob は不要で、毎 commit 1 回起動するだけで十分 (ファイル数に依存せず常に内部で正規化)。
+    doc-naming:
+      run: bash scripts/pre-commit-doc-naming.sh
+
+# ================================================================
+# pre-push: サブエージェント自己申告に頼らない最終ゲート
+# ----------------------------------------------------------------
+# 重要:
+#   - ビルド (compile / type check 全量)
+#   - 単体テスト (fast mode、外部依存 (DB/Docker) を要するものは skip)
+#   - 各サービス/モジュールを漏れなく列挙する
+#
+# サブエージェントが "ALL PASS" と誤報告しても、この pre-push が
+# 機械的に再実行し、失敗すれば push を拒否する。
+# 外部依存を要する統合テストは short モードや環境変数で制御し、
+# local push で安定動作することを優先する。
+# ================================================================
+pre-push:
+  parallel: true
+  commands:
+    # ------------------------------------------------------------
+    # サンプル: サービス/モジュールごとに build と test を列挙する
+    # 言語ごとの例:
+    #   Go:         go build ./... && go test ./... -short -race
+    #   TypeScript: bun x tsc --noEmit && bun test
+    #   Python:     uv run pyright . && uv run pytest -x -q -m "not integration"
+    #   Rust:       cargo build --all-targets && cargo test --lib
+    #   Java:       ./gradlew compileJava test --parallel
+    #   Elixir:     mix compile --warnings-as-errors && mix test --exclude integration
+    # ------------------------------------------------------------
+    # <service>-build:
+    #   run: cd <service> && <build-command>
+    #
+    # <service>-test:
+    #   run: cd <service> && <test-command-fast-mode>
+
+    # 例外:
+    # - 外部依存 (DB / Docker / ネットワーク) を要するテストは短モードで
+    #   skip し、CI か明示的な環境変数下でのみ実行する設計にする
+    # - 長時間テスト (> 30s) は pre-push に含めない。CI 側に委ねる
+
+    # ------------------------------------------------------------
+    # Obsidian vault 同期検証
+    # ------------------------------------------------------------
+    # 目的:
+    #   - spec frontmatter の YAML 厳密構文検証 (yq parse)
+    #   - related_issues / related_prs の形式検証
+    #   - glossary_refs と vault 内 concept の突合
+    #   - vault → spec symlink の解決可能性
+    #   - ADR 新規追加時の vault adr-index.md 反映
+    #
+    # 前提: yq グローバルインストール済み (mise use -g yq@latest)
+    # 動作:
+    #   - $OBSIDIAN_VAULT_DIR 未設定の vault 不要 project では silent skip (exit 0)
+    #   - yq 未 install は error + exit 1 (環境不備として明示化)
+    obsidian-sync:
+      tags: docs
+      run: bash scripts/pre-push-obsidian-sync.sh
+
+    # ------------------------------------------------------------
+    # シークレットの深掘りスキャン (trufflehog) — 任意
+    # ------------------------------------------------------------
+    # gitleaks (pre-commit) がパターンマッチで「漏洩の可能性」を検出するのに対し、
+    # trufflehog は実 API を叩いて「現在も生きている秘密値か」を検証する
+    # (verified secrets)。検証通信が走るため遅く、デフォルトでは無効化。
+    #
+    # 有効化条件 (推奨):
+    #   - 機密度の高いリポジトリ (本番 IaC / 顧客データ処理基盤 等)
+    #   - インシデント対応中で履歴の徹底洗い出しが必要な期間
+    #
+    # secrets-deep-scan:
+    #   tags: security
+    #   run: trufflehog git file://. --since-commit HEAD~20 --only-verified --fail --no-update
+    #
+    # 通常は手動の `/secrets-check` skill 経由 (履歴全量) で運用する。
