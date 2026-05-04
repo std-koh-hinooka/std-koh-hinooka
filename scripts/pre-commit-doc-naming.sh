@@ -124,7 +124,7 @@ check_spec_frontmatter() {
 
     local missing=()
     for key in "${required_keys[@]}"; do
-      if ! echo "$fm" | grep -qE "^${key}:"; then
+      if ! echo "$fm" | grep -qF "${key}:"; then
         missing+=("$key")
       fi
     done

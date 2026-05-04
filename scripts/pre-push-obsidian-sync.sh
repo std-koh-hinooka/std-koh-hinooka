@@ -33,6 +33,13 @@ check_requirements() {
       exit 1
     fi
   done
+  # OBSIDIAN_VAULT_DIR を絶対パスに正規化、存在しないか解決不能ならエラー
+  local resolved
+  resolved=$(realpath -e "$OBSIDIAN_VAULT_DIR" 2>/dev/null) || {
+    echo "エラー: OBSIDIAN_VAULT_DIR '$OBSIDIAN_VAULT_DIR' が存在しないか解決できません" >&2
+    exit 1
+  }
+  OBSIDIAN_VAULT_DIR="$resolved"
 }
 
 validate_spec_yaml_and_concepts() {
@@ -41,7 +48,8 @@ validate_spec_yaml_and_concepts() {
   while IFS= read -r file; do
     [ -z "$file" ] && continue
     local fm_file
-    fm_file=$(mktemp)
+    fm_file=$(mktemp -t spec-fm.XXXXXXXXXX)
+    chmod 600 "$fm_file"
     awk '/^---$/{n++; if(n==2)exit; next} n==1' "$file" > "$fm_file"
 
     if ! yq -e . "$fm_file" >/dev/null 2>&1; then
