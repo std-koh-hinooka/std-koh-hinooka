@@ -2,16 +2,29 @@
 # pre-commit-doc-naming.sh
 # ドキュメント命名・配置・frontmatter 規約を検証する pre-commit フック
 #
-# 検証対象:
+# 検証対象 (本 hook の責務):
 #   - docs/plans/                  : <yyyy-MM-dd>-<branch>.md (現行維持)
-#   - docs/specs/                  : 配置・命名・frontmatter 必須 7 項目 + 値整合
+#   - docs/specs/                  : 配置・命名 + frontmatter 必須 7 キー存在
+#                                  + feature/bounded_context のファイル名/dir 名一致
+#                                  + status enum + last_reviewed 形式
 #   - docs/adr/                    : NNNN-<title>.md (現行維持)
 #   - CLAUDE.md (ルート/サブ)      : 進捗情報の直接記載がないこと (現行維持)
 #   - docs/superpowers/ 配下       : ファイル残存禁止 (廃止検証)
 #
+# 検証範囲外 (pre-push hook `pre-push-obsidian-sync.sh` の責務):
+#   - related_issues / related_prs 形式 (#NNN または owner/repo#NNN)
+#   - glossary_refs と Obsidian vault 内 concept の突合
+#   - vault → spec symlink の解決可能性
+#   - ADR 新規追加時の vault adr-index.md 反映
+#   - YAML 厳密構文検証 (yq parse)
+#
 # 詳細仕様: ~/.claude/CLAUDE.md §Documentation Structure
 #
-# Usage:
+# Invocation:
+#   - lefthook pre-commit から自動実行 (lefthook.yml で配線)
+#   - 手動実行: bash scripts/pre-commit-doc-naming.sh
+#
+# 配布:
 #   cp ~/.claude/templates/scripts/pre-commit-doc-naming.sh scripts/
 #   lefthook install
 
@@ -85,7 +98,7 @@ check_spec_placement() {
     fname=$(basename "$file")
     dir_path=$(dirname "$file")
     _skip_special_spec_file "$fname" "$dir_path" && continue
-    depth=$(echo "$file" | tr '/' '\n' | wc -l)
+    depth=$(awk -F'/' '{print NF}' <<< "$file")
     if [[ "$dir_path" == "docs/specs" ]]; then
       ERRORS+=("Spec 配置違反: $file (期待: docs/specs/{_uncategorized,<bounded-context>}/<feature-slug>.md, 直下配置禁止)")
       continue
@@ -263,7 +276,7 @@ report_errors() {
       echo "  - $err"
     done
     echo ""
-    echo "規約の詳細は ~/.claude/CLAUDE.md §Documentation Structure / §Spec Frontmatter 仕様 を参照してください。"
+    echo "規約の詳細は ~/.claude/CLAUDE.md §Documentation Structure / §Spec Frontmatter を参照してください。"
     exit 1
   fi
   exit 0

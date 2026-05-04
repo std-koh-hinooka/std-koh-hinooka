@@ -26,6 +26,10 @@
 - **不変条件**: 本 ADR が Active な期間、本 project の全 spec frontmatter `glossary_refs:` は **空配列 `[]` のみ** 許容 (vault 不在のため参照先が存在しない)。spec 作成・編集時は本不変条件を遵守すること
 - 将来 scope 追加が必要になった場合は本 ADR を Superseded にし、新規 ADR で scope 立ち上げを記録する。同時に上記不変条件は失効し、`glossary_refs:` への concept 列挙が可能になる
 - 機械的検証: `pre-push-obsidian-sync.sh` の `validate_spec_yaml_and_concepts` 関数で `glossary_refs` の concept ごとに vault 存在確認を行うが、`OBSIDIAN_VAULT_DIR` 未設定時はスクリプト全体が silent skip するため、本不変条件 (空配列のみ) は **人間レビュー** に委ねられる
+- **PR レビュー時の必須手順** (上記 silent skip を補完):
+  1. `grep -n 'glossary_refs:' docs/specs/**/*.md` を実行
+  2. 出力中に `glossary_refs: []` 以外を発見した場合、本 ADR 0001 が Active であることを再確認 (Active なら ERROR、Superseded なら新 scope 起票済みのはず)
+  3. ERROR 該当時は spec を `glossary_refs: []` に戻すか、scope 立ち上げ ADR を別途起票して本 ADR を Superseded にする
 
 ## References
 

@@ -1,10 +1,13 @@
-# lefthook.yml テンプレート (言語非依存)
+# lefthook.yml — std-koh-hinooka 用設定
+#
+# 本 repo は GitHub プロフィール README (Markdown) のみで構成され、
+# build/test/lint command は持たない (CLAUDE.md §技術スタック 参照)。
+# pre-commit は secrets-scan と doc-naming のみ、pre-push は obsidian-sync のみが有効。
+# `<service>-build` 等のコメントアウトされたサンプル群は、将来言語が追加される
+# 場合のリファレンスとして残してあり、現状は無効。
 #
 # 目的: サブエージェント自己申告 ("ALL PASS" 報告) を信用せず、機械的な
-# push ゲートで品質を担保する。プロジェクトで採用する言語/ツールチェインに
-# 合わせて、下記 placeholder をプロジェクト固有のコマンドに置換すること。
-#
-# 運用方針は ~/.claude/CLAUDE.md の "Sub-agent Self-Report is Untrusted" 節を参照。
+# push ゲートで品質を担保する (~/.claude/CLAUDE.md §Sub-agent Self-Report is Untrusted)。
 #
 # https://github.com/evilmartians/lefthook
 

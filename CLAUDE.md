@@ -28,8 +28,8 @@ GitHub プロフィール README (`std-koh-hinooka` user の `README.md`) の管
 # README.md ローカル preview (公開前確認)
 grip README.md  # http://localhost:6419 で GitHub 風 markdown render
 
-# プロフィール変更を公開
-git commit -m "feat: <変更内容>"
+# プロフィール変更を公開 (commit message は日本語、Conventional Commits prefix のみ英語可)
+git commit -m "feat: プロフィールに <変更内容> を追加する"
 git push origin <branch>
 gh pr create  # PR/ISSUE は public visible、機密含めない
 ```
@@ -50,7 +50,7 @@ gh pr create  # PR/ISSUE は public visible、機密含めない
 
 - **公開 repo**: ISSUE / PR / commit message / branch 名すべて public。秘匿情報を含めない
 - **画像サービス依存**: capsule-render / shields.io / streak-stats.demolab.com が落ちると README が崩れる。github-readme-stats のみ自前 Vercel で安定性最高
-- **`.gitignore` 不在**: secret 混入時は gitleaks (pre-commit hook) でブロックするが、`.env` 等の標準パターンを `.gitignore` に追加することを推奨
+- **`.gitignore` 最小構成**: 本 repo は `.gitignore` で secret 標準パターン (`.env`, `*.pem`, `credentials.json`, `*_rsa` 等) と OS 生成物のみカバー。新規パターンが必要になったら追記し、`.gitleaks.toml` の allowlist と二重で運用する
 
 ## Obsidian vault
 

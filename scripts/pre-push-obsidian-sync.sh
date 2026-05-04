@@ -3,17 +3,23 @@
 # Obsidian vault 同期検証 pre-push フック
 #
 # 検証内容:
-#   1. spec frontmatter YAML 厳密構文 (yq)
+#   1. spec frontmatter YAML 厳密構文 (yq -e .)
 #   2. related_issues / related_prs 形式 (#NNN または owner/repo#NNN)
-#   3. last_reviewed 妥当日付
+#   3. last_reviewed 妥当日付 (yq -e で「キー不在」と「parse error」を区別)
 #   4. glossary_refs と vault 内 concept 突合
-#   5. spec → vault symlink 解決可能性
-#   6. ADR 新規追加時の vault adr-index.md 反映
+#   5. spec → vault symlink 解決可能性 (空文字検出含む)
+#   6. ADR 新規追加時の vault adr-index.md 反映 (index 不在も検出)
 #   7. orphan glossary (WARN)
 #
 # 動作:
 #   - $OBSIDIAN_VAULT_DIR 未設定: silent skip exit 0
 #   - yq 未 install: error exit 1
+#   - yq 抽出失敗: silent ではなく ERROR
+#   - vault 構造異常 (glossary/ や README.md 不在): WARN
+#   - upstream/HEAD~1 解決不能 (初回 commit): WARN として可視化
+#
+# 一時ファイル:
+#   /tmp/spec-fm.* を mktemp で作成、chmod 600。EXIT trap で全削除。
 #
 # 詳細: ~/.claude/CLAUDE.md §Obsidian (Scope-Shared Vaults)
 
@@ -21,6 +27,14 @@ set -euo pipefail
 
 ERRORS=()
 WARNINGS=()
+
+# /tmp/spec-fm.* を script 終了時に必ず削除 (chmod 失敗等の異常終了でも cleanup)
+# trap は EXIT 時のみ間接呼び出し、shellcheck SC2329/SC2317 は invocation を検知できないため抑制
+# shellcheck disable=SC2329,SC2317
+_cleanup() {
+  rm -f /tmp/spec-fm.* 2>/dev/null || true
+}
+trap _cleanup EXIT
 
 check_requirements() {
   if [ -z "${OBSIDIAN_VAULT_DIR:-}" ]; then
@@ -42,9 +56,22 @@ check_requirements() {
   OBSIDIAN_VAULT_DIR="$resolved"
 }
 
+# yq の抽出を実行し、失敗時は ERROR を立てて非 0 を返す
+# usage: _yq_extract <file> <expr> <out_var_name>
+_yq_extract() {
+  local file="$1" expr="$2" out_var="$3"
+  local result
+  if ! result=$(yq -r "$expr" "$file" 2>&1); then
+    ERRORS+=("yq 抽出失敗: $file ($expr) — $result")
+    return 1
+  fi
+  printf -v "$out_var" '%s' "$result"
+}
+
 validate_spec_yaml_and_concepts() {
+  [ ! -d docs/specs ] && return 0
   local spec_files
-  spec_files=$(find docs/specs -name "*.md" -type f 2>/dev/null | grep -vE '(README\.md|\.gitkeep)$' || true)
+  spec_files=$(find docs/specs -name "*.md" -type f | grep -vE '(README\.md|\.gitkeep)$' || true)
   while IFS= read -r file; do
     [ -z "$file" ] && continue
     local fm_file
@@ -58,16 +85,29 @@ validate_spec_yaml_and_concepts() {
       continue
     fi
 
+    # last_reviewed: yq -e で「キー不在」と「parse error」を区別
+    # キー不在は pre-commit-doc-naming.sh で検出済みなので skip
     local last_reviewed
-    last_reviewed=$(yq -r '.last_reviewed' "$fm_file" 2>/dev/null || echo "")
-    if [ -n "$last_reviewed" ] && [ "$last_reviewed" != "null" ]; then
+    if last_reviewed=$(yq -e -r '.last_reviewed' "$fm_file" 2>/dev/null); then
       if ! date -d "$last_reviewed" >/dev/null 2>&1; then
         ERRORS+=("last_reviewed 妥当日付違反: $file (値: '$last_reviewed')")
       fi
     fi
 
-    local issues prs
-    mapfile -t issues < <(yq -r '.related_issues[]?' "$fm_file" 2>/dev/null || true)
+    # related_issues / related_prs / glossary_refs: yq 抽出は明示的に rc を確認
+    local issues_out prs_out refs_out
+    local issues=() prs=() refs=()
+    if _yq_extract "$fm_file" '.related_issues[]?' issues_out; then
+      [ -n "$issues_out" ] && mapfile -t issues <<< "$issues_out"
+    fi
+    if _yq_extract "$fm_file" '.related_prs[]?' prs_out; then
+      [ -n "$prs_out" ] && mapfile -t prs <<< "$prs_out"
+    fi
+    if _yq_extract "$fm_file" '.glossary_refs[]?' refs_out; then
+      [ -n "$refs_out" ] && mapfile -t refs <<< "$refs_out"
+    fi
+
+    local issue pr ref
     for issue in "${issues[@]}"; do
       [ -z "$issue" ] && continue
       [ "$issue" = "null" ] && continue
@@ -75,7 +115,6 @@ validate_spec_yaml_and_concepts() {
         ERRORS+=("related_issues 形式違反: $file 要素 '$issue' (期待: #NNN または owner/repo#NNN)")
       fi
     done
-    mapfile -t prs < <(yq -r '.related_prs[]?' "$fm_file" 2>/dev/null || true)
     for pr in "${prs[@]}"; do
       [ -z "$pr" ] && continue
       [ "$pr" = "null" ] && continue
@@ -83,9 +122,6 @@ validate_spec_yaml_and_concepts() {
         ERRORS+=("related_prs 形式違反: $file 要素 '$pr' (期待: #NNN または owner/repo#NNN)")
       fi
     done
-
-    local refs
-    mapfile -t refs < <(yq -r '.glossary_refs[]?' "$fm_file" 2>/dev/null || true)
     for ref in "${refs[@]}"; do
       [ -z "$ref" ] && continue
       [ "$ref" = "null" ] && continue
@@ -100,14 +136,15 @@ validate_spec_yaml_and_concepts() {
 
 validate_spec_symlink() {
   [ ! -d docs/specs ] && return 0
-  local project_name
+  local project_name symlink target expected
   project_name=$(basename "$(pwd)")
-  local symlink="$OBSIDIAN_VAULT_DIR/specs/$project_name"
+  symlink="$OBSIDIAN_VAULT_DIR/specs/$project_name"
   if [ -L "$symlink" ]; then
-    local target expected
     target=$(realpath "$symlink" 2>/dev/null || echo "")
     expected=$(realpath "docs/specs" 2>/dev/null || echo "")
-    if [ "$target" != "$expected" ]; then
+    if [ -z "$target" ] || [ -z "$expected" ]; then
+      ERRORS+=("Vault symlink 解決不能: $symlink (target='$target', expected='$expected')")
+    elif [ "$target" != "$expected" ]; then
       ERRORS+=("Vault symlink 不整合: $symlink が docs/specs を指していません (target: $target, expected: $expected)")
     fi
   fi
@@ -115,7 +152,7 @@ validate_spec_symlink() {
 
 validate_adr_index_entry() {
   # base: upstream tracking branch があれば優先、無ければ HEAD~1 にフォールバック
-  # 初回 commit のみで HEAD~1 解決不能時は検証 skip (return 0)
+  # 両方解決不能 (初回 commit のみ) なら WARN として可視化、新規 ADR の検証は skip
   local base=""
   # shellcheck disable=SC1083
   if base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); then
@@ -123,8 +160,10 @@ validate_adr_index_entry() {
   elif git rev-parse HEAD~1 >/dev/null 2>&1; then
     base="HEAD~1"
   else
+    WARNINGS+=("ADR index 検証 skip: base ref 解決不能 (upstream/HEAD~1 不在)")
     return 0
   fi
+  local idx="$OBSIDIAN_VAULT_DIR/adr-index.md"
   local new_adrs
   new_adrs=$(git diff --diff-filter=A --name-only "${base}...HEAD" 2>/dev/null | grep '^docs/adr/.*\.md$' || true)
   while IFS= read -r adr; do
@@ -132,16 +171,29 @@ validate_adr_index_entry() {
     local fname
     fname=$(basename "$adr")
     [[ "$fname" == ".gitkeep" ]] && continue
-    if ! grep -qF "$fname" "$OBSIDIAN_VAULT_DIR/adr-index.md" 2>/dev/null; then
-      ERRORS+=("ADR index 未反映: 新規 ADR $adr が $OBSIDIAN_VAULT_DIR/adr-index.md に未追加です")
+    if [ ! -f "$idx" ]; then
+      ERRORS+=("ADR index ファイル不在: $idx (vault が壊れている可能性)")
+      return 1
+    fi
+    if ! grep -qF "$fname" "$idx"; then
+      ERRORS+=("ADR index 未反映: 新規 ADR $adr が $idx に未追加です")
     fi
   done <<< "$new_adrs"
 }
 
 detect_orphan_glossary() {
-  [ ! -d "$OBSIDIAN_VAULT_DIR/glossary" ] && return 0
+  if [ ! -d "$OBSIDIAN_VAULT_DIR/glossary" ]; then
+    WARNINGS+=("vault 構造異常: $OBSIDIAN_VAULT_DIR/glossary/ 不在")
+    return 0
+  fi
   local readme="$OBSIDIAN_VAULT_DIR/README.md"
-  [ ! -f "$readme" ] && return 0
+  if [ ! -f "$readme" ]; then
+    WARNINGS+=("vault 構造異常: $OBSIDIAN_VAULT_DIR/README.md 不在")
+    return 0
+  fi
+  if [ ! -d docs/specs ]; then
+    return 0
+  fi
   local new_glossary
   new_glossary=$(find "$OBSIDIAN_VAULT_DIR/glossary" -name "*.md" -newer "$readme" 2>/dev/null | grep -v '\.gitkeep$' || true)
   while IFS= read -r gloss; do

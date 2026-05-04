@@ -2,7 +2,7 @@
 
 > **規約**: 本 ROADMAP は **常に 1 つ以上の Active マイルストーン** を持つ。Active 0 状態は禁止。
 > 完了したマイルストーンは「完了済」セクションへ移動する。
-> 詳細: `~/.claude/CLAUDE.md` §マイルストーン仕様
+> 詳細: `~/.claude/CLAUDE.md` §Milestone Specification
 
 ## Active マイルストーン
 
@@ -22,7 +22,7 @@
 - 機能完了 PR merge 後: 該当行の `[ ]` を `[x]` に更新
 - 仕様変更 (scope/粒度/遅延/前倒し/キャンセル): 該当行を直接編集
 - ISSUE/spec 追加: 行追加 (PR で commit)
-- 全行 [x] 達成: §マイルストーン完了条件 を実施し本セクションを「完了済」へ mv
+- 全行 [x] 達成: §Milestone Specification の完了条件 を実施し本セクションを「完了済」へ mv
 -->
 
 ## 完了済
@@ -44,5 +44,5 @@
 - 実装計画: `docs/plans/` (Branch-scoped: `<yyyy-MM-dd>-<branch>.md`)
 - 仕様書: `docs/specs/` (Feature-unit: `{_uncategorized,<bounded-context>}/<feature-slug>.md`)
 - ADR: `docs/adr/` (`NNNN-<title>.md`)
-- マイルストーン仕様: `~/.claude/CLAUDE.md` §マイルストーン仕様
+- マイルストーン仕様: `~/.claude/CLAUDE.md` §Milestone Specification
 - post-merge checklist: `~/.claude/CLAUDE.md` §post-merge follow-up checklist
