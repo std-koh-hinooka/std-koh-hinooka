@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# pre-commit-doc-naming.sh
+# ドキュメント命名・配置・frontmatter 規約を検証する pre-commit フック
+#
+# 検証対象:
+#   - docs/plans/                  : <yyyy-MM-dd>-<branch>.md (現行維持)
+#   - docs/specs/                  : 配置・命名・frontmatter 必須 7 項目 + 値整合
+#   - docs/adr/                    : NNNN-<title>.md (現行維持)
+#   - CLAUDE.md (ルート/サブ)      : 進捗情報の直接記載がないこと (現行維持)
+#   - docs/superpowers/ 配下       : ファイル残存禁止 (廃止検証)
+#
+# 詳細仕様: ~/.claude/CLAUDE.md §Documentation Structure
+#
+# Usage:
+#   cp ~/.claude/templates/scripts/pre-commit-doc-naming.sh scripts/
+#   lefthook install
+
+set -euo pipefail
+
+ERRORS=()
+STAGED_FILES=""
+
+safe_grep() {
+  local output rc=0
+  output=$(grep "$@") || rc=$?
+  if [[ $rc -eq 0 || $rc -eq 1 ]]; then
+    echo "$output"
+    return 0
+  fi
+  echo "エラー: grep がコード $rc で失敗しました (引数: $*)" >&2
+  exit 1
+}
+
+check_requirements() {
+  local cmds=(git grep awk basename)
+  for cmd in "${cmds[@]}"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      echo "エラー: 必須コマンド '$cmd' が見つかりません" >&2
+      exit 1
+    fi
+  done
+}
+
+get_staged_files() {
+  STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM) || {
+    echo "エラー: ステージされたファイル一覧の取得に失敗しました" >&2
+    exit 1
+  }
+}
+
+check_plan_naming() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}-.+\.md$'
+  local filtered_files
+  filtered_files=$(echo "$STAGED_FILES" | safe_grep '^docs/plans/')
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    local fname
+    fname=$(basename "$file")
+    [[ "$fname" == ".gitkeep" ]] && continue
+    if [[ ! "$fname" =~ $pattern ]]; then
+      ERRORS+=("Plan 命名違反: $file (期待: yyyy-MM-dd-<branch>.md)")
+    fi
+  done <<< "$filtered_files"
+}
+
+check_spec_placement_and_naming() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local spec_files
+  spec_files=$(echo "$STAGED_FILES" | safe_grep '^docs/specs/.*\.md$')
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    local fname dir_path bc_dir depth
+    fname=$(basename "$file")
+    dir_path=$(dirname "$file")
+    [[ "$fname" == ".gitkeep" ]] && continue
+    [[ "$fname" == "README.md" && "$dir_path" == "docs/specs" ]] && continue
+
+    # 配置: docs/specs 直下禁止 / 2 階層以上禁止
+    depth=$(echo "$file" | tr '/' '\n' | wc -l)
+    if [[ "$dir_path" == "docs/specs" ]]; then
+      ERRORS+=("Spec 配置違反: $file (期待: docs/specs/{_uncategorized,<bounded-context>}/<feature-slug>.md, 直下配置禁止)")
+      continue
+    fi
+    if [[ $depth -gt 4 ]]; then
+      ERRORS+=("Spec 配置違反: $file (2 階層以上禁止)")
+      continue
+    fi
+
+    # bounded context dir 名検証
+    bc_dir=$(basename "$dir_path")
+    if [[ "$bc_dir" != "_uncategorized" ]] && [[ ! "$bc_dir" =~ ^[a-z][a-z0-9-]*$ ]]; then
+      ERRORS+=("Bounded context dir 命名違反: $dir_path (期待: kebab-case ^[a-z][a-z0-9-]*\$ または _uncategorized)")
+    fi
+
+    # ファイル名検証 (kebab-case, アンダースコア prefix 禁止)
+    if [[ ! "$fname" =~ ^[a-z][a-z0-9-]*\.md$ ]]; then
+      ERRORS+=("Spec 命名違反: $file (期待: kebab-case ^[a-z][a-z0-9-]*\\.md\$, アンダースコア prefix は予約)")
+    fi
+  done <<< "$spec_files"
+}
+
+check_spec_frontmatter() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local required_keys=("feature" "status" "bounded_context" "related_issues" "related_prs" "glossary_refs" "last_reviewed")
+  local valid_status=("draft" "reviewed" "implemented" "deprecated")
+  local spec_files
+  spec_files=$(echo "$STAGED_FILES" | safe_grep '^docs/specs/.*/.*\.md$')
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    local fname dir_path bc_dir slug
+    fname=$(basename "$file")
+    dir_path=$(dirname "$file")
+    [[ "$fname" == ".gitkeep" ]] && continue
+    [[ "$fname" == "README.md" ]] && continue
+    bc_dir=$(basename "$dir_path")
+    slug="${fname%.md}"
+
+    [ -f "$file" ] || continue
+
+    local fm
+    fm=$(awk '/^---$/{n++; if(n==2)exit; next} n==1' "$file")
+    [ -z "$fm" ] && { ERRORS+=("Frontmatter 不在: $file"); continue; }
+
+    local missing=()
+    for key in "${required_keys[@]}"; do
+      if ! echo "$fm" | grep -qE "^${key}:"; then
+        missing+=("$key")
+      fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+      ERRORS+=("Frontmatter 必須項目欠落: $file (欠落キー: ${missing[*]})")
+      continue
+    fi
+
+    local feature_value bc_value status_value last_reviewed_value
+    feature_value=$(echo "$fm" | awk -F': *' '/^feature:/{print $2; exit}')
+    bc_value=$(echo "$fm" | awk -F': *' '/^bounded_context:/{print $2; exit}')
+    status_value=$(echo "$fm" | awk -F': *' '/^status:/{print $2; exit}')
+    last_reviewed_value=$(echo "$fm" | awk -F': *' '/^last_reviewed:/{print $2; exit}')
+
+    if [[ "$feature_value" != "$slug" ]]; then
+      ERRORS+=("Frontmatter 値不整合: $file (feature='$feature_value' ≠ ファイル名 '$slug')")
+    fi
+    if [[ "$bc_value" != "$bc_dir" ]]; then
+      ERRORS+=("Frontmatter 値不整合: $file (bounded_context='$bc_value' ≠ ディレクトリ名 '$bc_dir')")
+    fi
+    local is_valid_status=0
+    for v in "${valid_status[@]}"; do
+      [[ "$status_value" == "$v" ]] && is_valid_status=1 && break
+    done
+    if [[ $is_valid_status -eq 0 ]]; then
+      ERRORS+=("Frontmatter status 値違反: $file (status='$status_value', 期待: draft|reviewed|implemented|deprecated)")
+    fi
+    if [[ ! "$last_reviewed_value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      ERRORS+=("Frontmatter last_reviewed 形式違反: $file (期待: yyyy-MM-dd)")
+    fi
+  done <<< "$spec_files"
+}
+
+check_no_superpowers_dir() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local filtered_files
+  filtered_files=$(echo "$STAGED_FILES" | safe_grep '^docs/superpowers/')
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    ERRORS+=("Spec/plan 配置違反: $file (docs/superpowers/ ディレクトリは廃止されました。docs/specs/ または docs/plans/ へ移動してください)")
+  done <<< "$filtered_files"
+}
+
+check_adr_naming() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local pattern='^[0-9]{4}-.+\.md$'
+  local filtered_files
+  filtered_files=$(echo "$STAGED_FILES" | safe_grep '^docs/adr/')
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    local fname
+    fname=$(basename "$file")
+    [[ "$fname" == ".gitkeep" ]] && continue
+    if [[ ! "$fname" =~ $pattern ]]; then
+      ERRORS+=("ADR 命名違反: $file (期待: NNNN-<title>.md)")
+    fi
+  done <<< "$filtered_files"
+}
+
+check_claude_md_progress() {
+  [[ -z "$STAGED_FILES" ]] && return 0
+  local filtered_files
+  filtered_files=$(echo "$STAGED_FILES" | safe_grep 'CLAUDE\.md$')
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    local diff_output
+    diff_output=$(git diff --cached -- "$file") || {
+      echo "エラー: git diff --cached -- $file が失敗しました" >&2
+      exit 1
+    }
+    if echo "$diff_output" | LC_ALL=C.UTF-8 awk '
+      /^\+/ && !/^\+\+\+/ && !/→/ {
+        gsub(/`[^`]*`/, "")
+        line = tolower($0)
+        if (line ~ /(todo|wbs|進捗|タスク一覧|完了率|[0-9]+%|■|□|☑|☐|\[x\]|\[ \])/) exit 0
+      }
+      END { exit 1 }
+    '; then
+      ERRORS+=("CLAUDE.md に進捗情報の疑い: $file (進捗管理は ROADMAP.md または TaskCreate を使用してください)")
+    fi
+  done <<< "$filtered_files"
+}
+
+report_errors() {
+  if [ ${#ERRORS[@]} -gt 0 ]; then
+    echo "========================================"
+    echo " pre-commit: ドキュメント規約チェック失敗"
+    echo "========================================"
+    for err in "${ERRORS[@]}"; do
+      echo "  - $err"
+    done
+    echo ""
+    echo "規約の詳細は ~/.claude/CLAUDE.md §Documentation Structure / §Spec Frontmatter 仕様 を参照してください。"
+    exit 1
+  fi
+  exit 0
+}
+
+main() {
+  check_requirements
+  get_staged_files
+  check_plan_naming
+  check_spec_placement_and_naming
+  check_spec_frontmatter
+  check_no_superpowers_dir
+  check_adr_naming
+  check_claude_md_progress
+  report_errors
+}
+
+main "$@"
