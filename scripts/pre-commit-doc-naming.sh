@@ -98,13 +98,17 @@ check_spec_placement() {
     fname=$(basename "$file")
     dir_path=$(dirname "$file")
     _skip_special_spec_file "$fname" "$dir_path" && continue
+    # 配置検証 (path depth ベース):
+    #   - depth=3 (docs/specs/foo.md): 直下配置 → 禁止
+    #   - depth=4 (docs/specs/<bc>/foo.md): 正常 (_uncategorized/ 含む)
+    #   - depth>4 (docs/specs/<bc>/sub/foo.md): bounded-context 配下の subdirectory → 禁止
     depth=$(awk -F'/' '{print NF}' <<< "$file")
     if [[ "$dir_path" == "docs/specs" ]]; then
       ERRORS+=("Spec 配置違反: $file (期待: docs/specs/{_uncategorized,<bounded-context>}/<feature-slug>.md, 直下配置禁止)")
       continue
     fi
     if [[ $depth -gt 4 ]]; then
-      ERRORS+=("Spec 配置違反: $file (2 階層以上禁止)")
+      ERRORS+=("Spec 配置違反: $file (bounded-context dir 配下の subdirectory 禁止, 期待 depth=4)")
     fi
   done <<< "$spec_files"
 }

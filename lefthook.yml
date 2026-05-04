@@ -1,13 +1,12 @@
 # lefthook.yml — std-koh-hinooka 用設定
 #
-# 本 repo は GitHub プロフィール README (Markdown) のみで構成され、
-# build/test/lint command は持たない (CLAUDE.md §技術スタック 参照)。
-# pre-commit は secrets-scan と doc-naming のみ、pre-push は obsidian-sync のみが有効。
-# `<service>-build` 等のコメントアウトされたサンプル群は、将来言語が追加される
-# 場合のリファレンスとして残してあり、現状は無効。
+# 本 repo は GitHub プロフィール README (Markdown) のみで構成され、build/test/lint
+# command は持たない (CLAUDE.md §技術スタック 参照)。実効 hook は pre-commit の
+# secrets-scan と doc-naming、pre-push の obsidian-sync のみ。各サンプルブロックの
+# 有効/無効は本体コメント側で個別に説明。
 #
-# 目的: サブエージェント自己申告 ("ALL PASS" 報告) を信用せず、機械的な
-# push ゲートで品質を担保する (~/.claude/CLAUDE.md §Sub-agent Self-Report is Untrusted)。
+# 目的: サブエージェント自己申告 ("ALL PASS" 報告) を信用せず、機械的な push ゲート
+# で品質を担保する (~/.claude/CLAUDE.md §Sub-agent Self-Report is Untrusted)。
 #
 # https://github.com/evilmartians/lefthook
 

@@ -28,11 +28,17 @@ set -euo pipefail
 ERRORS=()
 WARNINGS=()
 
-# /tmp/spec-fm.* を script 終了時に必ず削除 (chmod 失敗等の異常終了でも cleanup)
+# 本 script が mktemp で作成した一時ファイル一覧。EXIT trap で個別削除し、
+# 他 process / 他 user が同 prefix で作成したファイルへの干渉を避ける。
+TMPFILES=()
+
 # trap は EXIT 時のみ間接呼び出し、shellcheck SC2329/SC2317 は invocation を検知できないため抑制
 # shellcheck disable=SC2329,SC2317
 _cleanup() {
-  rm -f /tmp/spec-fm.* 2>/dev/null || true
+  local f
+  for f in "${TMPFILES[@]:-}"; do
+    [ -n "$f" ] && rm -f "$f" 2>/dev/null || true
+  done
 }
 trap _cleanup EXIT
 
@@ -76,8 +82,17 @@ validate_spec_yaml_and_concepts() {
     [ -z "$file" ] && continue
     local fm_file
     fm_file=$(mktemp -t spec-fm.XXXXXXXXXX)
-    chmod 600 "$fm_file"
-    awk '/^---$/{n++; if(n==2)exit; next} n==1' "$file" > "$fm_file"
+    TMPFILES+=("$fm_file")
+    if ! chmod 600 "$fm_file"; then
+      ERRORS+=("一時ファイル chmod 600 失敗: $fm_file (tmpfs/SELinux 制限の可能性)")
+      rm -f "$fm_file"
+      continue
+    fi
+    if ! awk '/^---$/{n++; if(n==2)exit; next} n==1' "$file" > "$fm_file"; then
+      ERRORS+=("awk frontmatter 抽出失敗: $file")
+      rm -f "$fm_file"
+      continue
+    fi
 
     if ! yq -e . "$fm_file" >/dev/null 2>&1; then
       ERRORS+=("Spec frontmatter YAML parse 失敗: $file")
