@@ -15,7 +15,7 @@
 
 | ISSUE | spec | 状態 |
 |---|---|---|
-| [#9](https://github.com/std-koh-hinooka/std-koh-hinooka/issues/9) docs 構造全面改修 (vault 不要 pilot) | `docs/specs/_uncategorized/github-profile-readme.md` | [ ] |
+| [#9](https://github.com/std-koh-hinooka/std-koh-hinooka/issues/9) docs 構造全面改修 (vault 不要 pilot) | `docs/specs/_uncategorized/github-profile-readme.md` | [x] |
 
 <!--
 更新ルール (CLAUDE.md §post-merge follow-up checklist 参照):
