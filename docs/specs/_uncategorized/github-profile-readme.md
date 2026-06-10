@@ -6,6 +6,7 @@ related_issues: ['#7']
 related_prs: ['#8']
 glossary_refs: []
 last_reviewed: 2026-05-04
+test_plan_status: draft
 ---
 
 # GitHub プロフィール README リデザイン設計書
